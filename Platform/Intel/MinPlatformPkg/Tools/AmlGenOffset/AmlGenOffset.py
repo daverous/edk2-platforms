@@ -32,7 +32,7 @@ if __name__ == '__main__':
   #
   # Create command line argument parser object
   #
-  parser = argparse.ArgumentParser(prog=__prog__, version=__version__, usage=__usage__, description=__copyright__, conflict_handler='resolve')
+  parser = argparse.ArgumentParser(prog=__prog__, usage=__usage__, description=__copyright__, conflict_handler='resolve')
   group = parser.add_mutually_exclusive_group(required=True)
   group.add_argument("-e", action="store_true", dest='Encode', help='encode file')
   group.add_argument("-d", action="store_true", dest='Decode', help='decode file')
@@ -49,7 +49,7 @@ if __name__ == '__main__':
   args = parser.parse_args()
 
   if args.Encode:
-    print 'Unsupported'
+    print('Unsupported')
 
   if args.Decode:
     args.OutputFileName = args.OutputFile
@@ -61,11 +61,11 @@ if __name__ == '__main__':
     lines = args.InputFile.readlines()
     args.InputFile.close()
     for line in lines:
-        if line.strip().startswith('{\"') == False:
-            if line.strip().startswith('* Compilation') == False and line.strip().startswith('* ASL+') == False and line.strip().startswith('* Copyright') == False:
+        if line.strip().startswith(b'{\"') == False:
+            if line.strip().startswith(b'* Compilation') == False and line.strip().startswith(b'* ASL+') == False and line.strip().startswith(b'* Copyright') == False:
                 args.OutputFile.write(line)
         else:
-            match_obj = re.search(filter_pattern, line, re.M | re.I)
+            match_obj = re.search(bytes(filter_pattern, 'utf-8'), line, re.M | re.I)
             if match_obj is not None:
                 args.OutputFile.write(line)
     args.OutputFile.close()

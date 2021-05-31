@@ -12,6 +12,10 @@ import shutil
 import struct
 import binascii
 from   ctypes import *
+from functools import reduce
+
+def cmp(a, b):
+    return (a > b) - (a < b) 
 
 class GUID(Structure):
     _fields_ = [
@@ -379,10 +383,11 @@ def Val2Bytes (value, blen):
 class PeTeImage:
     def __init__(self, offset, data):
         self.Offset    = offset
+        self.TeHdr   = None
         tehdr          = EFI_TE_IMAGE_HEADER.from_buffer (data, 0)
-        if   tehdr.Signature == 'VZ': # TE image
+        if   tehdr.Signature == b'VZ': # TE image
             self.TeHdr   = tehdr
-        elif tehdr.Signature == 'MZ': # PE32 image
+        elif tehdr.Signature == b'MZ': # PE32 image
             self.TeHdr   = None
             self.DosHdr  = EFI_IMAGE_DOS_HEADER.from_buffer (data, 0)
             self.PeHdr   = EFI_IMAGE_NT_HEADERS32.from_buffer (data, self.DosHdr.e_lfanew)
@@ -416,7 +421,7 @@ class PeTeImage:
             # Read relocation type,offset pairs
             rlen  = blkhdr.BlockSize - sizeof(PE_RELOC_BLOCK_HEADER)
             rnum  = rlen/sizeof(c_uint16)
-            rdata = (c_uint16 * rnum).from_buffer(self.Data, offset)
+            rdata = (c_uint16 * int(rnum)).from_buffer(self.Data, offset)
             for each in rdata:
                 roff  = each & 0xfff
                 rtype = each >> 12
@@ -537,16 +542,16 @@ class FileChecker:
         return False
 
     def PrintRebasePcd(self, pcd):
-        print "PCD: " + pcd[0] + "|" + pcd[3] + " <== " + pcd[1] + "(" + pcd[2] + ")"
+        print("PCD: " + pcd[0] + "|" + pcd[3] + " <== " + pcd[1] + "(" + pcd[2] + ")")
 
     def RebaseFv(self, fvName, rebasePcd):
         sourceFileName = os.path.join(self.sourceRoot,fvName,self.target,fvName+".Fv")
-        print "rebasing(FV) - " + sourceFileName
+        print("rebasing(FV) - " + sourceFileName)
 
         try :
             file = open(sourceFileName, "rb")
         except Exception:
-            print "fail to open " + sourceFileName
+            print("fail to open " + sourceFileName)
             return
         try:
             buffer = file.read()
@@ -554,15 +559,15 @@ class FileChecker:
             file.close()
 
             FvHeader = EFI_FIRMWARE_VOLUME_HEADER.from_buffer (data, 0)
-            print "HeaderLength    - " + hex(FvHeader.HeaderLength)
-            print "ExtHeaderOffset - " + hex(FvHeader.ExtHeaderOffset)
+            print("HeaderLength    - " + hex(FvHeader.HeaderLength))
+            print("ExtHeaderOffset - " + hex(FvHeader.ExtHeaderOffset))
 
             if (FvHeader.ExtHeaderOffset == 0):
                 Offset = FvHeader.HeaderLength
             else:
                 FvExHeader = EFI_FIRMWARE_VOLUME_EXT_HEADER.from_buffer(data, FvHeader.ExtHeaderOffset)
-                print "  FvName  - %08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x" % (FvExHeader.FvName.Guid1, FvExHeader.FvName.Guid2, FvExHeader.FvName.Guid3, FvExHeader.FvName.Guid4[0], FvExHeader.FvName.Guid4[1], FvExHeader.FvName.Guid4[2], FvExHeader.FvName.Guid4[3], FvExHeader.FvName.Guid4[4], FvExHeader.FvName.Guid4[5], FvExHeader.FvName.Guid4[6], FvExHeader.FvName.Guid4[7])
-                print "  ExtHeaderSize - " + hex(FvExHeader.ExtHeaderSize)
+                print("  FvName  - %08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x" % (FvExHeader.FvName.Guid1, FvExHeader.FvName.Guid2, FvExHeader.FvName.Guid3, FvExHeader.FvName.Guid4[0], FvExHeader.FvName.Guid4[1], FvExHeader.FvName.Guid4[2], FvExHeader.FvName.Guid4[3], FvExHeader.FvName.Guid4[4], FvExHeader.FvName.Guid4[5], FvExHeader.FvName.Guid4[6], FvExHeader.FvName.Guid4[7]))
+                print("  ExtHeaderSize - " + hex(FvExHeader.ExtHeaderSize))
                 Offset = FvHeader.ExtHeaderOffset + FvExHeader.ExtHeaderSize
             Offset = (Offset + 0x7) & ~0x7
 
@@ -576,20 +581,20 @@ class FileChecker:
                 if (FfsHeader.Type == 0xFF) or (FfsHeader.Type == EFI_FV_FILETYPE_FFS_PAD) :
                     Offset = (FfsOffset + FfsSize + 7) & ~0x7
                     continue
-                print "Ffs - %08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x" % (FfsHeader.Name.Guid1, FfsHeader.Name.Guid2, FfsHeader.Name.Guid3, FfsHeader.Name.Guid4[0], FfsHeader.Name.Guid4[1], FfsHeader.Name.Guid4[2], FfsHeader.Name.Guid4[3], FfsHeader.Name.Guid4[4], FfsHeader.Name.Guid4[5], FfsHeader.Name.Guid4[6], FfsHeader.Name.Guid4[7])
+                print("Ffs - %08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x" % (FfsHeader.Name.Guid1, FfsHeader.Name.Guid2, FfsHeader.Name.Guid3, FfsHeader.Name.Guid4[0], FfsHeader.Name.Guid4[1], FfsHeader.Name.Guid4[2], FfsHeader.Name.Guid4[3], FfsHeader.Name.Guid4[4], FfsHeader.Name.Guid4[5], FfsHeader.Name.Guid4[6], FfsHeader.Name.Guid4[7]))
                 Offset = Offset + sizeof(EFI_FFS_FILE_HEADER)
                 while (Offset < FfsOffset + FfsSize) :
                     SectionHeader = EFI_COMMON_SECTION_HEADER.from_buffer (data, Offset)
                     #print "  Section - " + hex(Offset)
                     if (SectionHeader.Type == EFI_SECTION_PE32) or (SectionHeader.Type == EFI_SECTION_TE) :
                         PeOffset = Offset + sizeof(EFI_COMMON_SECTION_HEADER)
-                        print "    PE - " + hex(PeOffset) + "(" + binascii.hexlify(data[PeOffset:PeOffset+2]) + ")"
+                        print("    PE - " + hex(PeOffset) + "(" + binascii.hexlify(data[PeOffset:PeOffset+2]).decode('utf-8')  + ")")
 
                         newbase = int(rebasePcd[1],16)
                         oldbase = int(rebasePcd[3],16)
 
                         delta = newbase - oldbase
-                        print "    delta - " + hex(delta) + "(" + hex(oldbase) + " <== " + hex(newbase) + ")"
+                        print("    delta - " + hex(delta) + "(" + hex(oldbase) + " <== " + hex(newbase) + ")")
 
                         PeLength = FfsSize-sizeof(EFI_FFS_FILE_HEADER);
 
@@ -630,14 +635,14 @@ class FileChecker:
                 splitLine = newline.split(" ", 2)
                 if (cmp (splitLine[0], "*F") == 0) or (cmp (splitLine[0], "*P") == 0):
                     if (cmp (splitLine[1], TargetPcd) == 0):
-                        print "found - " + TargetPkg + "." + TargetPcd
+                        print("found - " + TargetPkg + "." + TargetPcd)
 
                         splitLine = splitLine[2].strip()[1:].strip().split(" ", 1)
                         if (cmp (splitLine[0], "FIXED") == 0) or (cmp (splitLine[0], "PATCH") == 0):
                             SplitLine = splitLine[1].strip()[1:].split(")", 1)
                             Type = SplitLine[0]
                             Value = SplitLine[1].strip()[1:].strip().split()[0]
-                            print "  Type - (" + Type + "), Value - (" + Value + ")"
+                            print("  Type - (" + Type + "), Value - (" + Value + ")")
                             return [Value, Type]
         return ["", ""]
 
@@ -648,7 +653,7 @@ class FileChecker:
         try :
             file = open(fileName)
         except Exception:
-            print "fail to open " + fileName
+            print("fail to open " + fileName)
             return
         try:
             while 1:
@@ -681,11 +686,11 @@ class FileChecker:
 
     def SetNewFvBase (self, fvName, PcdName, OldFvBase, NewFvBase):
         fileName = os.path.join(self.sourceRoot,fvName,self.target,fvName+".inf")
-        print "update - " + fileName
+        print("update - " + fileName)
         try :
             file = open(fileName, "r")
         except Exception:
-            print "fail to open " + fileName
+            print("fail to open " + fileName)
             return
         try:
             lines = file.readlines()
@@ -715,7 +720,7 @@ class FileChecker:
                     splitLine = newline.split("|")
                     if cmp (PcdName, splitLine[0]) == 0:
                         if cmp (OldFvBase, splitLine[1]) != 0:
-                            print "ERROR: OldFvBase mismatch!"
+                            print("ERROR: OldFvBase mismatch!")
                         else:
                             lines[index] = "#!  " + PcdName + "|" + NewFvBase + "\n"
                             break
@@ -730,11 +735,11 @@ class FileChecker:
         try :
             file = open(self.reportFile)
         except Exception:
-            print "fail to open " + self.reportFile
+            print("fail to open " + self.reportFile)
             return
         try:
             file.seek(0)
-            print "checking - " + self.RebasePcd[0]
+            print("checking - " + self.RebasePcd[0])
             ValuePair = self.GetPcdFromReport (file, self.RebasePcd[0])
             self.RebasePcd[1] = ValuePair[0]
             self.RebasePcd[2] = ValuePair[1]
@@ -747,7 +752,7 @@ def main():
     fileChecker = FileChecker()
 
     if (len(sys.argv) != 6) :
-        print "usage: RebaseBinFv <Target> <SourceRoot> <ReportFile> <FvName> <RebasePcdName>"
+        print("usage: RebaseBinFv <Target> <SourceRoot> <ReportFile> <FvName> <RebasePcdName>")
         return 0
 
     fileChecker.target       = sys.argv[1]
